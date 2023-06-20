@@ -2,10 +2,12 @@
 #include <gio/gio.h>
 #include <xwiimote.h>
 #include <errno.h>
+#include <stdio.h>
 
 typedef struct Args {
     GMainLoop *loop;
     char *mac_address;
+    char *filename;
 } Args;
 
 static int board_read(struct xwii_iface *iface, void *userdata) {
@@ -66,7 +68,13 @@ static int board_read(struct xwii_iface *iface, void *userdata) {
         }
         avg /= measurements_len;
         avg /= 100;
-        printf("Measured: %f\n", avg);
+
+        char text[100];
+        struct tm *t = localtime(&measure_start);
+        strftime(text, sizeof(text)-1, "%Y-%m-%d %H:%M:%S", t);
+        FILE *file = fopen(((Args*)userdata)->filename, "a");
+        fprintf(file, "%s,%.2f\n", text, avg);
+        fclose(file);
     }
  done:
     xwii_iface_close(iface, XWII_IFACE_BALANCE_BOARD);
@@ -208,8 +216,8 @@ static void bluez_signal_adapter_changed(
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        g_print("Usage: %s <mac address>\n", argv[0]);
+    if (argc != 3) {
+        g_print("Usage: %s <mac address> <csv file>\n", argv[0]);
         return 1;
     }
 
@@ -224,6 +232,7 @@ int main(int argc, char **argv) {
     Args userdata;
     userdata.loop = loop;
     userdata.mac_address = *&argv[1];
+    userdata.filename = *&argv[2];
 
     guint sub = g_dbus_connection_signal_subscribe(con,
                                                    "org.bluez",

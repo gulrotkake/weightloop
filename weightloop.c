@@ -7,6 +7,69 @@ typedef struct Args {
     char *mac_address;
 } Args;
 
+static int board_connect(void *userdata) {
+    struct xwii_monitor *mon = xwii_monitor_new(TRUE, FALSE);
+    if (!mon) {
+        g_print("Cannot create monitor\n");
+        return 1;
+    }
+
+    struct xwii_iface *iface = NULL;
+    char *path = NULL;
+    char *devtype = NULL;
+
+    // Negotiation takes time, so we have to loop this until we can read the path
+    do {
+        xwii_monitor_get_fd(mon, TRUE);
+        path = xwii_monitor_poll(mon);
+        if (path == NULL) {
+            usleep(100000);
+        }
+    } while (path == NULL);
+
+    // Likewise, we need to loop the devtype, until it resolves as something other than 'unknown'
+    size_t devtype_count = 0;
+    do {
+        usleep(500000);
+        if (iface != NULL) {
+            xwii_iface_unref(iface);
+            iface = NULL;
+        }
+
+        if (devtype != NULL) {
+            free(devtype);
+            devtype = NULL;
+        }
+
+        int ret = xwii_iface_new(&iface, path);
+        if (ret) {
+            g_print("Error opening path %s\n", path);
+            goto done;
+        }
+
+        if (xwii_iface_get_devtype(iface, &devtype) || devtype_count == 10) {
+            g_print("Failed to get devtype\n");
+            goto done;
+        }
+
+        devtype_count += 1;
+    } while (strcmp(devtype, "balanceboard") != 0);
+
+    board_read(iface, userdata);
+ done:
+    if (path != NULL) {
+        free(path);
+    }
+    if (iface != NULL) {
+        xwii_iface_unref(iface);
+    }
+    if (devtype != NULL) {
+        free(devtype);
+    }
+    xwii_monitor_unref(mon);
+    return 0;
+}
+
 static void bluez_signal_adapter_changed(
     GDBusConnection *conn,
     const gchar *sender,
@@ -41,7 +104,24 @@ static void bluez_signal_adapter_changed(
             }
 
             if (g_variant_get_boolean(value)) {
-                g_print("[up] balance board\n");
+                g_print("[up] balance board, connecting\n");
+                if (!board_connect(userdata) == 0) {
+                    exit=1;
+                    goto done;
+                }
+                GError *error = NULL;
+                GVariant *result= g_dbus_connection_call_sync(conn,
+                                                              "org.bluez",
+                                                              path,
+                                                              iface,
+                                                              "Disconnect",
+                                                              NULL,
+                                                              NULL,
+                                                              G_DBUS_CALL_FLAGS_NONE,
+                                                              -1,
+                                                              NULL,
+                                                              &error);
+                g_variant_unref(result);
             } else {
                 g_print("[down] balance board\n");
             }

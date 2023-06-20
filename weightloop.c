@@ -23,6 +23,7 @@ static void bluez_signal_adapter_changed(
     GVariant *value = NULL;
     const gchar *signature = g_variant_get_type_string(params);
     Args *args = (Args*)userdata;
+    int exit = 0;
 
     if(strcmp(signature, "(sa{sv}as)") != 0) {
         g_print("Invalid signature for %s: %s != %s", signal, signature, "(sa{sv}as)");
@@ -35,6 +36,7 @@ static void bluez_signal_adapter_changed(
             if(!g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN)) {
                 g_print("Invalid argument type for %s: %s != %s", key,
                         g_variant_get_type_string(value), "b");
+                exit=1;
                 goto done;
             }
 
@@ -52,6 +54,10 @@ static void bluez_signal_adapter_changed(
 
     if(value != NULL) {
         g_variant_unref(value);
+    }
+
+    if(exit == 1) {
+        g_main_loop_quit(((Args *)userdata)->loop);
     }
 }
 

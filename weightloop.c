@@ -1,11 +1,77 @@
 #include <glib.h>
 #include <gio/gio.h>
 #include <xwiimote.h>
+#include <errno.h>
 
 typedef struct Args {
     GMainLoop *loop;
     char *mac_address;
 } Args;
+
+static int board_read(struct xwii_iface *iface, void *userdata) {
+    int ret = xwii_iface_open(iface, XWII_IFACE_BALANCE_BOARD);
+    if (ret) {
+        g_print("Failed to open iface %d\n", ret);
+        return -1;
+    }
+
+    struct xwii_event event;
+    int32_t measurements[100];
+    size_t measurements_idx = 0;
+
+    time_t loop_start = time(NULL);
+    time_t now = loop_start;
+    time_t measure_start = 0;
+
+    unsigned measurements_len = sizeof(measurements)/sizeof(measurements[0]);
+    while (now - measure_start < 3 || measure_start == 0) {
+        now = time(NULL);
+
+        if (now - loop_start > 30) {
+            g_print("Timeout, failed to read within 30 seconds");
+            goto done;
+        }
+
+        ret = xwii_iface_poll(iface, &event);
+
+        if (ret == -EAGAIN) {
+            usleep(50000);
+        } else {
+            int32_t weight = 0;
+            for (int i = 0; i<4; ++i) {
+                weight += event.v.abs[i].x;
+            }
+
+            // Ignore smallest weight, just noise
+            if (weight < 1000) {
+                continue;
+            }
+
+            // We have a valid measurement, measure for 3 seconds.
+            if (measure_start == 0) {
+                measure_start = time(NULL);
+            }
+
+            measurements[measurements_idx % measurements_len] = weight;
+            measurements_idx += 1;
+        }
+    }
+
+    if (measurements_idx < measurements_len) {
+        g_print("Failed to gather sufficient measurement data\n");
+    } else {
+        double avg = 0;
+        for (unsigned i = 0; i<measurements_len; ++i) {
+            avg += measurements[i];
+        }
+        avg /= measurements_len;
+        avg /= 100;
+        printf("Measured: %f\n", avg);
+    }
+ done:
+    xwii_iface_close(iface, XWII_IFACE_BALANCE_BOARD);
+    return 0;
+}
 
 static int board_connect(void *userdata) {
     struct xwii_monitor *mon = xwii_monitor_new(TRUE, FALSE);

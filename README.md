@@ -2,6 +2,8 @@
 
 Wii Balance Board measurement loop
 
+https://tightloop.io/balance-board/index.html
+
 ## Bluetooth Setup:
 
 ````
